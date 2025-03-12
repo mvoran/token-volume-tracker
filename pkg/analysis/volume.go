@@ -1,3 +1,7 @@
+// Package analysis provides functionality for analyzing token trading volume data.
+// It supports both CoinGecko and CoinMarketCap data formats and calculates various
+// metrics including rolling averages, low volume days, and historical highs.
+
 package analysis
 
 import (
@@ -12,52 +16,58 @@ import (
 	"time"
 )
 
-// VolumeData represents a single day's trading data
+// VolumeData represents a single day's trading data and calculated metrics.
+// All monetary values are in USD.
 type VolumeData struct {
-	Name              string
-	Date              time.Time
-	Volume            float64
-	DayAvg30          float64
-	DayAvg90          float64
-	DayAvg180         float64
-	LowVolumeDays30   int     // Number of days with volume <= $1 in last 30 days
-	LowVolumeDays90   int     // Number of days with volume <= $1 in last 90 days
-	LowVolumeDays180  int     // Number of days with volume <= $1 in last 180 days
-	High30            float64 // Highest 30-day average seen
-	High90            float64 // Highest 90-day average seen
-	High180           float64 // Highest 180-day average seen
-	ChangeFromHigh30  float64 // Percentage change from highest 30-day average
-	ChangeFromHigh90  float64 // Percentage change from highest 90-day average
-	ChangeFromHigh180 float64 // Percentage change from highest 180-day average
+	Name              string    // Token identifier (e.g., "THC", "MAID")
+	Date              time.Time // Date of the trading data
+	Volume            float64   // Daily trading volume in USD
+	DayAvg30          float64   // 30-day rolling average volume
+	DayAvg90          float64   // 90-day rolling average volume
+	DayAvg180         float64   // 180-day rolling average volume
+	LowVolumeDays30   int       // Number of days with volume <= $1 in last 30 days
+	LowVolumeDays90   int       // Number of days with volume <= $1 in last 90 days
+	LowVolumeDays180  int       // Number of days with volume <= $1 in last 180 days
+	High30            float64   // Highest 30-day average volume seen
+	High90            float64   // Highest 90-day average volume seen
+	High180           float64   // Highest 180-day average volume seen
+	ChangeFromHigh30  float64   // Percentage change from highest 30-day average
+	ChangeFromHigh90  float64   // Percentage change from highest 90-day average
+	ChangeFromHigh180 float64   // Percentage change from highest 180-day average
 }
 
-// DataSource represents the source of the data
+// DataSource represents the source of the trading data.
+// Different sources have different CSV formats that need to be handled appropriately.
 type DataSource int
 
 const (
-	CoinMarketCap DataSource = iota
-	CoinGecko
-	Unknown
+	CoinMarketCap DataSource = iota // Data from CoinMarketCap (semicolon-separated, RFC3339Nano timestamps)
+	CoinGecko                       // Data from CoinGecko (comma-separated, custom timestamp format)
+	Unknown                         // Unknown data source
 )
 
 // detectDataSource determines whether the data is from CoinMarketCap or CoinGecko
+// based on the CSV header format. This allows automatic handling of different data sources.
+// CRITICAL: This affects how timestamps and volumes are parsed. Do not modify without testing both formats.
 func detectDataSource(reader *csv.Reader) (DataSource, error) {
-	// Read header
 	header, err := reader.Read()
 	if err != nil {
 		return CoinMarketCap, fmt.Errorf("error reading header: %v", err)
 	}
 
-	// Check for CoinGecko format
+	// CoinGecko format has exactly 4 columns with specific headers
 	if len(header) == 4 && header[0] == "snapped_at" && header[3] == "total_volume" {
 		return CoinGecko, nil
 	}
 
-	// Default to CoinMarketCap
+	// Default to CoinMarketCap if not CoinGecko
 	return CoinMarketCap, nil
 }
 
-// parseRecord parses a record based on the data source
+// parseRecord parses a record based on the data source, extracting timestamp and volume.
+// CRITICAL: Each source has different date formats and column positions:
+// - CoinGecko: "YYYY-MM-DD HH:mm:ss UTC" format, volume in column 4
+// - CoinMarketCap: RFC3339Nano format, volume in column 10
 func parseRecord(record []string, source DataSource) (time.Time, float64, error) {
 	var timestamp time.Time
 	var volume float64
@@ -90,7 +100,11 @@ func parseRecord(record []string, source DataSource) (time.Time, float64, error)
 	return timestamp, volume, nil
 }
 
-// fillMissingDays ensures there is a record for every day in the date range
+// fillMissingDays ensures there is a record for every day in the date range.
+// CRITICAL: This function:
+// 1. Fills gaps in the data with zero volume
+// 2. Extends the data up to today's date if the source data ends earlier
+// 3. Preserves the original volume data for dates that exist
 func fillMissingDays(records []VolumeData, name string) []VolumeData {
 	if len(records) == 0 {
 		return records
@@ -112,7 +126,7 @@ func fillMissingDays(records []VolumeData, name string) []VolumeData {
 	var completeRecords []VolumeData
 	currentDate := records[0].Date
 	today := time.Now()
-	endDate := today // Use today as the end date instead of the last record's date
+	endDate := today // Use today as the end date to ensure we fill up to current date
 
 	for !currentDate.After(endDate) {
 		dateKey := currentDate.Format("2006-01-02")
@@ -133,7 +147,13 @@ func fillMissingDays(records []VolumeData, name string) []VolumeData {
 	return completeRecords
 }
 
-// CalculateRollingAverages reads trading data from a CSV file and calculates rolling averages
+// CalculateRollingAverages reads trading data from a CSV file and calculates rolling averages.
+// CRITICAL: This function handles several important aspects:
+// 1. Detects and handles different data source formats
+// 2. Filters data to only include the last 365 days
+// 3. Fills in missing days with zero volume
+// 4. Calculates rolling averages and other metrics
+// 5. Tracks historical highs and changes from those highs
 func CalculateRollingAverages(inputFile, outputFile string) error {
 	// Extract name from input file name (part before first underscore)
 	baseName := filepath.Base(inputFile)
@@ -348,7 +368,16 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 	return nil
 }
 
-// ProcessAllFiles processes all CSV files in the downloads directory and generates analysis files
+// ProcessAllFiles processes all CSV files in the downloads directory and generates analysis files.
+// For each CSV file:
+// 1. Extracts the token name from the filename
+// 2. Creates a corresponding output file in the output directory
+// 3. Processes the data using CalculateRollingAverages
+// 4. Continues processing remaining files even if one fails
+//
+// The function expects CSV files to follow the naming convention:
+// - CoinMarketCap: TOKEN_DATE_RANGE_historical_data_coinmarketcap.csv
+// - CoinGecko: TOKEN_usd-max.csv
 func ProcessAllFiles(downloadsDir, outputDir string) error {
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
