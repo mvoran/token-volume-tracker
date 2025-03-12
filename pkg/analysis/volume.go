@@ -1,0 +1,384 @@
+package analysis
+
+import (
+	"encoding/csv"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// VolumeData represents a single day's trading data
+type VolumeData struct {
+	Name              string
+	Date              time.Time
+	Volume            float64
+	DayAvg30          float64
+	DayAvg90          float64
+	DayAvg180         float64
+	LowVolumeDays30   int     // Number of days with volume <= $1 in last 30 days
+	LowVolumeDays90   int     // Number of days with volume <= $1 in last 90 days
+	LowVolumeDays180  int     // Number of days with volume <= $1 in last 180 days
+	High30            float64 // Highest 30-day average seen
+	High90            float64 // Highest 90-day average seen
+	High180           float64 // Highest 180-day average seen
+	ChangeFromHigh30  float64 // Percentage change from highest 30-day average
+	ChangeFromHigh90  float64 // Percentage change from highest 90-day average
+	ChangeFromHigh180 float64 // Percentage change from highest 180-day average
+}
+
+// DataSource represents the source of the data
+type DataSource int
+
+const (
+	CoinMarketCap DataSource = iota
+	CoinGecko
+	Unknown
+)
+
+// detectDataSource determines whether the data is from CoinMarketCap or CoinGecko
+func detectDataSource(reader *csv.Reader) (DataSource, error) {
+	// Read header
+	header, err := reader.Read()
+	if err != nil {
+		return CoinMarketCap, fmt.Errorf("error reading header: %v", err)
+	}
+
+	// Check for CoinGecko format
+	if len(header) == 4 && header[0] == "snapped_at" && header[3] == "total_volume" {
+		return CoinGecko, nil
+	}
+
+	// Default to CoinMarketCap
+	return CoinMarketCap, nil
+}
+
+// parseRecord parses a record based on the data source
+func parseRecord(record []string, source DataSource) (time.Time, float64, error) {
+	var timestamp time.Time
+	var volume float64
+	var err error
+
+	switch source {
+	case CoinGecko:
+		// Parse CoinGecko timestamp (YYYY-MM-DD HH:mm:ss UTC)
+		timestamp, err = time.Parse("2006-01-02 15:04:05 MST", record[0])
+		if err != nil {
+			return time.Time{}, 0, fmt.Errorf("error parsing timestamp: %v", err)
+		}
+		volume, err = strconv.ParseFloat(record[3], 64) // total_volume is in column 4
+		if err != nil {
+			return time.Time{}, 0, fmt.Errorf("error parsing volume: %v", err)
+		}
+
+	case CoinMarketCap:
+		// Parse CoinMarketCap timestamp (RFC3339Nano)
+		timestamp, err = time.Parse(time.RFC3339Nano, strings.Trim(record[0], "\""))
+		if err != nil {
+			return time.Time{}, 0, fmt.Errorf("error parsing timestamp: %v", err)
+		}
+		volume, err = strconv.ParseFloat(strings.TrimSpace(record[9]), 64)
+		if err != nil {
+			return time.Time{}, 0, fmt.Errorf("error parsing volume: %v", err)
+		}
+	}
+
+	return timestamp, volume, nil
+}
+
+// fillMissingDays ensures there is a record for every day in the date range
+func fillMissingDays(records []VolumeData, name string) []VolumeData {
+	if len(records) == 0 {
+		return records
+	}
+
+	// Find the date range
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Date.Before(records[j].Date)
+	})
+
+	// Create a map of existing dates for quick lookup
+	dateMap := make(map[string]float64)
+	for _, record := range records {
+		dateKey := record.Date.Format("2006-01-02")
+		dateMap[dateKey] = record.Volume
+	}
+
+	// Create a complete list of records with all dates
+	var completeRecords []VolumeData
+	currentDate := records[0].Date
+	today := time.Now()
+	endDate := today // Use today as the end date instead of the last record's date
+
+	for !currentDate.After(endDate) {
+		dateKey := currentDate.Format("2006-01-02")
+		volume, exists := dateMap[dateKey]
+		if !exists {
+			volume = 0
+		}
+
+		completeRecords = append(completeRecords, VolumeData{
+			Name:   name,
+			Date:   currentDate,
+			Volume: volume,
+		})
+
+		currentDate = currentDate.AddDate(0, 0, 1)
+	}
+
+	return completeRecords
+}
+
+// CalculateRollingAverages reads trading data from a CSV file and calculates rolling averages
+func CalculateRollingAverages(inputFile, outputFile string) error {
+	// Extract name from input file name (part before first underscore)
+	baseName := filepath.Base(inputFile)
+	name := strings.Split(baseName, "_")[0]
+
+	// Read input file
+	input, err := os.Open(inputFile)
+	if err != nil {
+		return fmt.Errorf("error opening input file: %v", err)
+	}
+	defer input.Close()
+
+	// Create CSV reader
+	reader := csv.NewReader(input)
+
+	// Try to detect the format
+	source, err := detectDataSource(reader)
+	if err != nil {
+		return err
+	}
+
+	// Set delimiter based on source
+	if source == CoinMarketCap {
+		reader.Comma = ';'
+		reader.LazyQuotes = true
+		reader.FieldsPerRecord = -1 // Allow variable number of fields
+	}
+
+	// Skip header
+	_, err = reader.Read()
+	if err != nil {
+		return fmt.Errorf("error reading header: %v", err)
+	}
+
+	// Read all records and store in memory
+	var records []VolumeData
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("error reading record: %v", err)
+		}
+
+		// Parse timestamp and volume based on source
+		timestamp, volume, err := parseRecord(record, source)
+		if err != nil {
+			return err
+		}
+
+		records = append(records, VolumeData{
+			Name:   name,
+			Date:   timestamp,
+			Volume: volume,
+		})
+	}
+
+	// Sort records by date (newest first)
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Date.After(records[j].Date)
+	})
+
+	// Keep only the last 365 days of data
+	cutoffDate := time.Now().AddDate(-1, 0, 0)
+	var limitedRecords []VolumeData
+	for _, record := range records {
+		if !record.Date.Before(cutoffDate) {
+			limitedRecords = append(limitedRecords, record)
+		}
+	}
+	records = limitedRecords
+
+	// Fill in any missing days with zero volume
+	records = fillMissingDays(records, name)
+
+	// Sort records by date (oldest first) for calculations
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Date.Before(records[j].Date)
+	})
+
+	// Track highest averages seen
+	var highestAvg30, highestAvg90, highestAvg180 float64
+
+	// Calculate rolling averages, low volume days, and track highest averages
+	for i := range records {
+		// 30-day window
+		if i >= 29 {
+			sum := 0.0
+			lowVolumeDays := 0
+			for j := 0; j < 30; j++ {
+				vol := records[i-j].Volume
+				sum += vol
+				if vol <= 1.0 {
+					lowVolumeDays++
+				}
+			}
+			avg30 := sum / 30
+			records[i].DayAvg30 = avg30
+			records[i].LowVolumeDays30 = lowVolumeDays
+
+			// Update highest 30-day average if needed
+			if avg30 > highestAvg30 {
+				highestAvg30 = avg30
+			}
+			records[i].High30 = highestAvg30
+			if highestAvg30 > 0 {
+				records[i].ChangeFromHigh30 = ((avg30 - highestAvg30) / highestAvg30) * 100
+			}
+		}
+
+		// 90-day window
+		if i >= 89 {
+			sum := 0.0
+			lowVolumeDays := 0
+			for j := 0; j < 90; j++ {
+				vol := records[i-j].Volume
+				sum += vol
+				if vol <= 1.0 {
+					lowVolumeDays++
+				}
+			}
+			avg90 := sum / 90
+			records[i].DayAvg90 = avg90
+			records[i].LowVolumeDays90 = lowVolumeDays
+
+			// Update highest 90-day average if needed
+			if avg90 > highestAvg90 {
+				highestAvg90 = avg90
+			}
+			records[i].High90 = highestAvg90
+			if highestAvg90 > 0 {
+				records[i].ChangeFromHigh90 = ((avg90 - highestAvg90) / highestAvg90) * 100
+			}
+		}
+
+		// 180-day window
+		if i >= 179 {
+			sum := 0.0
+			lowVolumeDays := 0
+			for j := 0; j < 180; j++ {
+				vol := records[i-j].Volume
+				sum += vol
+				if vol <= 1.0 {
+					lowVolumeDays++
+				}
+			}
+			avg180 := sum / 180
+			records[i].DayAvg180 = avg180
+			records[i].LowVolumeDays180 = lowVolumeDays
+
+			// Update highest 180-day average if needed
+			if avg180 > highestAvg180 {
+				highestAvg180 = avg180
+			}
+			records[i].High180 = highestAvg180
+			if highestAvg180 > 0 {
+				records[i].ChangeFromHigh180 = ((avg180 - highestAvg180) / highestAvg180) * 100
+			}
+		}
+	}
+
+	// Sort records back to newest first for output
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].Date.After(records[j].Date)
+	})
+
+	// Create output file
+	output, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("error creating output file: %v", err)
+	}
+	defer output.Close()
+
+	// Create CSV writer
+	writer := csv.NewWriter(output)
+	defer writer.Flush()
+
+	// Write header
+	if err := writer.Write([]string{
+		"Name", "Date", "Volume", "30DayAvg", "90DayAvg", "180DayAvg",
+		"LowVolumeDays30", "LowVolumeDays90", "LowVolumeDays180",
+		"HighestAvg30", "HighestAvg90", "HighestAvg180",
+		"ChangeFromHighAvg30%", "ChangeFromHighAvg90%", "ChangeFromHighAvg180%",
+	}); err != nil {
+		return fmt.Errorf("error writing header: %v", err)
+	}
+
+	// Write records
+	for _, record := range records {
+		if err := writer.Write([]string{
+			record.Name,
+			record.Date.Format("2006-01-02"),
+			fmt.Sprintf("%.2f", record.Volume),
+			fmt.Sprintf("%.2f", record.DayAvg30),
+			fmt.Sprintf("%.2f", record.DayAvg90),
+			fmt.Sprintf("%.2f", record.DayAvg180),
+			fmt.Sprintf("%d", record.LowVolumeDays30),
+			fmt.Sprintf("%d", record.LowVolumeDays90),
+			fmt.Sprintf("%d", record.LowVolumeDays180),
+			fmt.Sprintf("%.2f", record.High30),
+			fmt.Sprintf("%.2f", record.High90),
+			fmt.Sprintf("%.2f", record.High180),
+			fmt.Sprintf("%.2f", record.ChangeFromHigh30),
+			fmt.Sprintf("%.2f", record.ChangeFromHigh90),
+			fmt.Sprintf("%.2f", record.ChangeFromHigh180),
+		}); err != nil {
+			return fmt.Errorf("error writing record: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// ProcessAllFiles processes all CSV files in the downloads directory and generates analysis files
+func ProcessAllFiles(downloadsDir, outputDir string) error {
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("error creating output directory: %v", err)
+	}
+
+	// Read all files in downloads directory
+	entries, err := os.ReadDir(downloadsDir)
+	if err != nil {
+		return fmt.Errorf("error reading downloads directory: %v", err)
+	}
+
+	// Process each CSV file
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".csv") {
+			inputFile := filepath.Join(downloadsDir, entry.Name())
+
+			// Extract name from file and create output filename
+			name := strings.Split(entry.Name(), "_")[0]
+			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_Trading_Average.csv", name))
+
+			// Process the file
+			fmt.Printf("Processing %s...\n", entry.Name())
+			if err := CalculateRollingAverages(inputFile, outputFile); err != nil {
+				fmt.Printf("Error processing %s: %v\n", entry.Name(), err)
+				continue // Continue with next file even if this one fails
+			}
+			fmt.Printf("Successfully processed %s\n", entry.Name())
+		}
+	}
+
+	return nil
+}
