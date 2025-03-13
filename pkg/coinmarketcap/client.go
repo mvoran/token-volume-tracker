@@ -40,9 +40,15 @@ func NewClient(cfg *config.Config) (*Client, error) {
 }
 
 // GetHistoricalVolume fetches historical volume data for a given token
-func (c *Client) GetHistoricalVolume(symbol string, days int) ([]VolumeData, error) {
+// If endDate is provided, it will fetch data up to that date; otherwise, it uses the current date
+func (c *Client) GetHistoricalVolume(symbol string, days int, endDate ...time.Time) ([]VolumeData, error) {
 	// Calculate the start and end dates
-	end := time.Now()
+	var end time.Time
+	if len(endDate) > 0 {
+		end = endDate[0]
+	} else {
+		end = time.Now()
+	}
 	start := end.AddDate(0, 0, -days)
 
 	// Build the API URL

@@ -103,48 +103,55 @@ func parseRecord(record []string, source DataSource) (time.Time, float64, error)
 	return timestamp, volume, nil
 }
 
-// fillMissingDays ensures there is a record for every day in the date range.
-// CRITICAL: This function:
-// 1. Fills gaps in the data with zero volume
-// 2. Extends the data up to today's date if the source data ends earlier
-// 3. Preserves the original volume data for dates that exist
-func fillMissingDays(records []VolumeData, name string) []VolumeData {
+// fillMissingDays processes a list of volume records and ensures there are
+// continuous records from startDate to endDate with zero volume for missing days.
+// It guarantees exactly 364 days of data when endDate is yesterday.
+func fillMissingDays(records []VolumeData, tokenName string, endDate time.Time) []VolumeData {
 	if len(records) == 0 {
 		return records
 	}
 
-	// Find the date range
+	// Sort records by date
 	sort.Slice(records, func(i, j int) bool {
 		return records[i].Date.Before(records[j].Date)
 	})
 
 	// Create a map of existing dates for quick lookup
-	dateMap := make(map[string]float64)
-	for _, record := range records {
-		dateKey := record.Date.Format("2006-01-02")
-		dateMap[dateKey] = record.Volume
+	existingDates := make(map[string]VolumeData)
+	for _, r := range records {
+		dateStr := r.Date.Format("2006-01-02")
+		existingDates[dateStr] = r
 	}
 
-	// Create a complete list of records with all dates
+	// Get the start date (exactly 364 days before endDate, inclusive of endDate)
+	startDate := endDate.AddDate(0, 0, -363) // -363 ensures we get 364 days total (inclusive of both start and end)
+	startDate = startDate.UTC().Truncate(24 * time.Hour)
+	endDate = endDate.UTC().Truncate(24 * time.Hour)
+
+	// Create a complete list of records
 	var completeRecords []VolumeData
-	currentDate := records[0].Date
-	today := timeNow().Truncate(24 * time.Hour)
-	endDate := today // Include today in the output
-
-	for !currentDate.After(endDate) {
-		dateKey := currentDate.Format("2006-01-02")
-		volume, exists := dateMap[dateKey]
-		if !exists {
-			volume = 0
+	currentDate := startDate
+	for !currentDate.After(endDate) { // Changed to !currentDate.After(endDate) to be more explicit
+		dateStr := currentDate.Format("2006-01-02")
+		if record, exists := existingDates[dateStr]; exists {
+			completeRecords = append(completeRecords, record)
+		} else {
+			completeRecords = append(completeRecords, VolumeData{
+				Name:   tokenName,
+				Date:   currentDate,
+				Volume: 0,
+			})
 		}
+		currentDate = currentDate.Add(24 * time.Hour)
+	}
 
-		completeRecords = append(completeRecords, VolumeData{
-			Name:   name,
-			Date:   currentDate,
-			Volume: volume,
-		})
-
-		currentDate = currentDate.AddDate(0, 0, 1)
+	// Verify we have exactly 364 days
+	if len(completeRecords) != 364 {
+		fmt.Printf("Warning: Expected 364 days, but got %d. Adjusting...\n", len(completeRecords))
+		if len(completeRecords) > 364 {
+			// Trim from the start if we have too many
+			completeRecords = completeRecords[len(completeRecords)-364:]
+		}
 	}
 
 	return completeRecords
@@ -153,7 +160,7 @@ func fillMissingDays(records []VolumeData, name string) []VolumeData {
 // CalculateRollingAverages reads trading data from a CSV file and calculates rolling averages.
 // CRITICAL: This function handles several important aspects:
 // 1. Detects and handles different data source formats
-// 2. Filters data to only include the last 365 days
+// 2. Filters data to only include the last 364 days up to yesterday (not including today)
 // 3. Fills in missing days with zero volume
 // 4. Calculates rolling averages and other metrics
 // 5. Tracks historical highs and changes from those highs
@@ -188,7 +195,8 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 	// Read all records and store in memory
 	var records []VolumeData
 	today := timeNow().UTC().Truncate(24 * time.Hour)
-	fmt.Printf("Today is: %v\n", today)
+	yesterday := today.AddDate(0, 0, -1) // Use yesterday as the cutoff date instead of today
+	fmt.Printf("Today is: %v, Using yesterday (%v) as cutoff\n", today, yesterday)
 
 	for {
 		record, err := reader.Read()
@@ -207,8 +215,8 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 
 		fmt.Printf("Read record: date=%v volume=%v\n", timestamp, volume)
 
-		// Skip future dates
-		if timestamp.After(today) {
+		// Skip future dates (anything after yesterday)
+		if timestamp.After(yesterday) {
 			fmt.Printf("Skipping future date: %v\n", timestamp)
 			continue
 		}
@@ -234,8 +242,8 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 		return records[i].Date.Before(records[j].Date)
 	})
 
-	// Keep only the last 365 days of data
-	cutoffDate := today.AddDate(-1, 0, 0)
+	// Keep only the last 364 days of data
+	cutoffDate := yesterday.AddDate(0, 0, -364) // Changed from -365 to -364 for 364 days total
 	var limitedRecords []VolumeData
 	for _, record := range records {
 		if !record.Date.Before(cutoffDate) {
@@ -244,13 +252,13 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 	}
 	records = limitedRecords
 
-	fmt.Printf("After limiting to 365 days: %d records\n", len(records))
+	fmt.Printf("After limiting to 364 days: %d records\n", len(records))
 	for _, r := range records {
 		fmt.Printf("  %v: %v\n", r.Date, r.Volume)
 	}
 
-	// Fill in any missing days with zero volume
-	records = fillMissingDays(records, name)
+	// Fill in any missing days with zero volume (up to yesterday, not today)
+	records = fillMissingDays(records, name, yesterday) // Changed from today to yesterday
 
 	fmt.Printf("After filling missing days: %d records\n", len(records))
 	for _, r := range records {
@@ -263,7 +271,19 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 	// Calculate rolling averages, low volume days, and track highest averages
 	for i := 0; i < len(records); i++ {
 		// Skip future dates in calculations
-		if records[i].Date.After(today) {
+		if records[i].Date.After(yesterday) {
+			records[i].DayAvg30 = 0
+			records[i].DayAvg90 = 0
+			records[i].DayAvg180 = 0
+			records[i].LowVolumeDays30 = 0
+			records[i].LowVolumeDays90 = 0
+			records[i].LowVolumeDays180 = 0
+			records[i].High30 = 0
+			records[i].High90 = 0
+			records[i].High180 = 0
+			records[i].ChangeFromHighAvg30 = 0
+			records[i].ChangeFromHighAvg90 = 0
+			records[i].ChangeFromHighAvg180 = 0
 			continue
 		}
 
@@ -271,81 +291,189 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 		sum := 0.0
 		lowVolumeDays := 0
 		daysInWindow := 0
+		hasFutureDate := false
 
-		// Count backwards from current day
-		for j := 0; j < 30 && i-j >= 0; j++ {
-			vol := records[i-j].Volume
-			sum += vol
-			if vol <= 1.0 {
-				lowVolumeDays++
+		// Count backwards from current day for average
+		for j := 0; j < 30; j++ {
+			// If we have data for this day
+			if i-j >= 0 {
+				// Check if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
+				vol := records[i-j].Volume
+				sum += vol
+				daysInWindow++
 			}
-			daysInWindow++
 		}
 
-		// Calculate average using actual number of days in window
-		avg := sum / float64(daysInWindow)
-		records[i].DayAvg30 = avg
-		records[i].LowVolumeDays30 = lowVolumeDays
+		// Calculate average using actual days in window
+		if hasFutureDate || daysInWindow < 30 {
+			records[i].DayAvg30 = 0
+			records[i].High30 = 0
+			records[i].ChangeFromHighAvg30 = 0
+		} else {
+			avg := sum / float64(daysInWindow)
+			records[i].DayAvg30 = avg
 
-		// Update highest average if needed
-		if avg > highestAvg30 {
-			highestAvg30 = avg
+			// Update highest average if needed
+			if avg > highestAvg30 {
+				highestAvg30 = avg
+			}
+			records[i].High30 = highestAvg30
+
+			// Calculate change from high
+			if highestAvg30 > 0 {
+				records[i].ChangeFromHighAvg30 = ((avg - highestAvg30) / highestAvg30) * 100
+			}
 		}
-		records[i].High30 = highestAvg30
 
-		// Calculate change from high
-		if highestAvg30 > 0 {
-			records[i].ChangeFromHighAvg30 = ((avg - highestAvg30) / highestAvg30) * 100
+		// Count low volume days in the past 30 days
+		lowVolumeDays = 0
+		daysInWindow = 0
+		hasFutureDate = false
+		for j := 0; j < 30; j++ {
+			// If we have data for this day
+			if i-j >= 0 {
+				// Skip if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
+				daysInWindow++
+				vol := records[i-j].Volume
+				if vol <= 1.0 {
+					lowVolumeDays++
+				}
+			}
+		}
+		if hasFutureDate || daysInWindow < 30 {
+			records[i].LowVolumeDays30 = 0
+		} else {
+			records[i].LowVolumeDays30 = lowVolumeDays
 		}
 
 		// 90-day window
-		if i >= 89 {
-			sum := 0.0
-			lowVolumeDays := 0
-			daysInWindow := 0
-			for j := 0; j < 90 && i-j >= 0; j++ {
+		sum = 0.0
+		lowVolumeDays = 0
+		daysInWindow = 0
+		hasFutureDate = false
+
+		// Count backwards for average
+		for j := 0; j < 90; j++ {
+			if i-j >= 0 {
+				// Check if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
 				vol := records[i-j].Volume
 				sum += vol
-				if vol <= 1.0 {
-					lowVolumeDays++
-				}
 				daysInWindow++
 			}
+		}
+
+		if hasFutureDate || daysInWindow < 90 {
+			records[i].DayAvg90 = 0
+			records[i].High90 = 0
+			records[i].ChangeFromHighAvg90 = 0
+		} else {
 			avg := sum / float64(daysInWindow)
 			records[i].DayAvg90 = avg
-			records[i].LowVolumeDays90 = lowVolumeDays
+
 			if avg > highestAvg90 {
 				highestAvg90 = avg
 			}
+			records[i].High90 = highestAvg90
 			if highestAvg90 > 0 {
 				records[i].ChangeFromHighAvg90 = ((avg - highestAvg90) / highestAvg90) * 100
 			}
-			records[i].High90 = highestAvg90
 		}
 
-		// 180-day window
-		if i >= 179 {
-			sum := 0.0
-			lowVolumeDays := 0
-			daysInWindow := 0
-			for j := 0; j < 180 && i-j >= 0; j++ {
+		// Count low volume days in the past 90 days
+		lowVolumeDays = 0
+		daysInWindow = 0
+		hasFutureDate = false
+		for j := 0; j < 90; j++ {
+			if i-j >= 0 {
+				// Skip if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
+				daysInWindow++
 				vol := records[i-j].Volume
-				sum += vol
 				if vol <= 1.0 {
 					lowVolumeDays++
 				}
+			}
+		}
+		if hasFutureDate || daysInWindow < 90 {
+			records[i].LowVolumeDays90 = 0
+		} else {
+			records[i].LowVolumeDays90 = lowVolumeDays
+		}
+
+		// 180-day window
+		sum = 0.0
+		lowVolumeDays = 0
+		daysInWindow = 0
+		hasFutureDate = false
+
+		// Count backwards for average
+		for j := 0; j < 180; j++ {
+			if i-j >= 0 {
+				// Check if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
+				vol := records[i-j].Volume
+				sum += vol
 				daysInWindow++
 			}
+		}
+
+		if hasFutureDate || daysInWindow < 180 {
+			records[i].DayAvg180 = 0
+			records[i].High180 = 0
+			records[i].ChangeFromHighAvg180 = 0
+		} else {
 			avg := sum / float64(daysInWindow)
 			records[i].DayAvg180 = avg
-			records[i].LowVolumeDays180 = lowVolumeDays
+
 			if avg > highestAvg180 {
 				highestAvg180 = avg
 			}
+			records[i].High180 = highestAvg180
 			if highestAvg180 > 0 {
 				records[i].ChangeFromHighAvg180 = ((avg - highestAvg180) / highestAvg180) * 100
 			}
-			records[i].High180 = highestAvg180
+		}
+
+		// Count low volume days in the past 180 days
+		lowVolumeDays = 0
+		daysInWindow = 0
+		hasFutureDate = false
+		for j := 0; j < 180; j++ {
+			if i-j >= 0 {
+				// Skip if this day is in the future
+				if records[i-j].Date.After(yesterday) {
+					hasFutureDate = true
+					break
+				}
+				daysInWindow++
+				vol := records[i-j].Volume
+				if vol <= 1.0 {
+					lowVolumeDays++
+				}
+			}
+		}
+		if hasFutureDate || daysInWindow < 180 {
+			records[i].LowVolumeDays180 = 0
+		} else {
+			records[i].LowVolumeDays180 = lowVolumeDays
 		}
 	}
 
@@ -362,6 +490,7 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 
 	// Write header
 	header := []string{
+		"Name",
 		"Date",
 		"Volume",
 		"30DayAvg",
@@ -370,12 +499,12 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 		"LowVolumeDays30",
 		"LowVolumeDays90",
 		"LowVolumeDays180",
-		"High30",
-		"High90",
-		"High180",
-		"ChangeFromHighAvg30",
-		"ChangeFromHighAvg90",
-		"ChangeFromHighAvg180",
+		"HighestAvg30",
+		"HighestAvg90",
+		"HighestAvg180",
+		"ChangeFromHighAvg30%",
+		"ChangeFromHighAvg90%",
+		"ChangeFromHighAvg180%",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("error writing header: %v", err)
@@ -385,14 +514,23 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 	for i := len(records) - 1; i >= 0; i-- {
 		record := records[i]
 		// Skip future dates in output
-		if record.Date.After(today) {
-			continue
-		}
-		// For today's date, use the actual record
-		if record.Date.Equal(today) {
-			record = records[i]
+		if record.Date.After(yesterday) {
+			// Zero out all values for future dates
+			record.DayAvg30 = 0
+			record.DayAvg90 = 0
+			record.DayAvg180 = 0
+			record.LowVolumeDays30 = 0
+			record.LowVolumeDays90 = 0
+			record.LowVolumeDays180 = 0
+			record.High30 = 0
+			record.High90 = 0
+			record.High180 = 0
+			record.ChangeFromHighAvg30 = 0
+			record.ChangeFromHighAvg90 = 0
+			record.ChangeFromHighAvg180 = 0
 		}
 		row := []string{
+			record.Name,
 			record.Date.Format("2006-01-02"),
 			fmt.Sprintf("%.2f", record.Volume),
 			fmt.Sprintf("%.2f", record.DayAvg30),
@@ -431,7 +569,7 @@ func CalculateRollingAverages(inputFile, outputFile string) error {
 // The function expects CSV files to follow the naming convention:
 // - CoinMarketCap: TOKEN_DATE_RANGE_historical_data_coinmarketcap.csv
 // - CoinGecko: TOKEN_usd-max.csv
-func ProcessAllFiles(downloadsDir, outputDir string) error {
+func ProcessAllFiles(downloadsDir string, outputDir string) error {
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("error creating output directory: %v", err)
@@ -447,18 +585,14 @@ func ProcessAllFiles(downloadsDir, outputDir string) error {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".csv") {
 			inputFile := filepath.Join(downloadsDir, entry.Name())
-
-			// Extract name from file and create output filename
+			// Extract token name from filename
 			name := strings.Split(entry.Name(), "_")[0]
 			outputFile := filepath.Join(outputDir, fmt.Sprintf("%s_Trading_Average.csv", name))
 
-			// Process the file
-			fmt.Printf("Processing %s...\n", entry.Name())
 			if err := CalculateRollingAverages(inputFile, outputFile); err != nil {
-				fmt.Printf("Error processing %s: %v\n", entry.Name(), err)
-				continue // Continue with next file even if this one fails
+				fmt.Printf("Error processing %s: %v\n", inputFile, err)
+				continue
 			}
-			fmt.Printf("Successfully processed %s\n", entry.Name())
 		}
 	}
 

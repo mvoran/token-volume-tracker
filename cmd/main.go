@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"os"
@@ -10,12 +11,20 @@ import (
 
 	"token-volume-tracker/pkg/analysis"
 	"token-volume-tracker/pkg/scraper"
+	"token-volume-tracker/pkg/utils"
 )
 
-// Base directory for all data
-const dataBasePath = "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software Development/Token Volume Tracker Data"
+// Base directory for all data relative to project root
+const dataDirName = "Token Volume Tracker Data"
 
 func main() {
+	// Get project root directory
+	root, err := utils.GetProjectRoot()
+	if err != nil {
+		fmt.Printf("Error getting project root: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Define command line flags
 	fetchCmd := flag.NewFlagSet("fetch", flag.ExitOnError)
 	analyzeCmd := flag.NewFlagSet("analyze", flag.ExitOnError)
@@ -33,6 +42,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get the data base path
+	dataBasePath := filepath.Join(filepath.Dir(root), dataDirName)
+
 	switch os.Args[1] {
 	case "fetch":
 		fetchCmd.Parse(os.Args[2:])
@@ -41,11 +53,11 @@ func main() {
 			fetchCmd.PrintDefaults()
 			os.Exit(1)
 		}
-		handleFetch(*tokenID, *days)
+		handleFetch(*tokenID, *days, dataBasePath)
 
 	case "analyze":
 		analyzeCmd.Parse(os.Args[2:])
-		handleAnalyze(*inputFile)
+		handleAnalyze(*inputFile, dataBasePath)
 
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
@@ -54,7 +66,7 @@ func main() {
 	}
 }
 
-func handleFetch(token string, days int) {
+func handleFetch(token string, days int, dataBasePath string) {
 	// Create download directory if it doesn't exist
 	downloadDir := filepath.Join(dataBasePath, "Download")
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -65,9 +77,18 @@ func handleFetch(token string, days int) {
 	// Initialize scraper client
 	client := scraper.NewClient()
 
-	// Fetch historical volume data
-	fmt.Printf("Fetching %d days of historical volume data for %s...\n", days, token)
-	volumeData, err := client.GetHistoricalVolume(token, days)
+	// If requesting a full year, adjust days to 364 due to source data limitation
+	if days >= 365 {
+		days = 364
+	}
+
+	// Ensure we only request data up to yesterday (last full day)
+	endDate := time.Now().AddDate(0, 0, -1) // Yesterday
+
+	fmt.Printf("Fetching %d days of historical volume data for %s (up to %s)...\n",
+		days, token, endDate.Format("2006-01-02"))
+
+	volumeData, err := client.GetHistoricalVolume(token, days, endDate)
 	if err != nil {
 		fmt.Printf("Error fetching data: %v\n", err)
 		os.Exit(1)
@@ -84,7 +105,7 @@ func handleFetch(token string, days int) {
 	fmt.Printf("Successfully wrote data to %s\n", outputFile)
 }
 
-func handleAnalyze(inputFile string) {
+func handleAnalyze(inputFile string, dataBasePath string) {
 	downloadDir := filepath.Join(dataBasePath, "Download")
 	finalDir := filepath.Join(dataBasePath, "Final")
 
@@ -123,6 +144,26 @@ func writeCSV(filename string, data []scraper.VolumeData) error {
 	}
 	defer file.Close()
 
-	// TODO: Implement CSV writing
+	// Create CSV writer
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	header := []string{"Date", "Volume"}
+	if err := writer.Write(header); err != nil {
+		return fmt.Errorf("error writing header: %v", err)
+	}
+
+	// Write data
+	for _, d := range data {
+		record := []string{
+			d.Date.Format("2006-01-02"),
+			fmt.Sprintf("%.2f", d.Volume),
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("error writing record: %v", err)
+		}
+	}
+
 	return nil
 }
