@@ -43,12 +43,13 @@ The application uses the following directory structure:
 ```
 Software Development/
 ├── Token Volume Tracker/         # Application directory
-│   ├── cmd/                     # Command-line interface
-│   ├── pkg/                     # Application packages
-│   └── token-volume-tracker    # Compiled executable
-└── Token Volume Tracker Data/   # Data directory
-    ├── Download/               # Raw downloaded data
-    └── Final/                  # Processed final data
+│   ├── cmd/                      # Command-line interface
+│   ├── pkg/                      # Application packages
+│   ├── utils/                    # Utility scripts
+│   └── token-volume-tracker      # Compiled executable
+└── Token Volume Tracker Data/    # Data directory
+    ├── Download/                 # Raw downloaded data
+    └── Final/                    # Processed final data
 ```
 
 ## Usage
@@ -70,33 +71,60 @@ cd "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software 
    - `-token` - Token symbol (e.g., CELO)
    - `-days` - Number of days of historical data to fetch (default: 7)
 
-2. `analyze` - Analyze volume data (Coming Soon!)
+2. `analyze` - Analyze volume data
    - `-input` - Input CSV file to analyze
    - `-output` - Output directory for analysis results
 
 ### Output Files
 
-Downloaded data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming convention:
+#### Download Files
+Raw data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming convention:
 ```
-{TOKEN}_volume_{YYYY-MM-DD}_{HHMMSS}.csv
+{TOKEN}_{START_DATE}-{END_DATE}_historical_data_coinmarketcap.csv
 ```
-Example: `CELO_volume_2024-03-20_143022.csv` (for CELO token downloaded on March 20, 2024 at 14:30:22)
+Example: `MAID_3_13_2024-3_13_2025_historical_data_coinmarketcap.csv`
 
-The CSV files contain two columns:
+#### Analysis Files
+Processed data files are stored in the `Token Volume Tracker Data/Final` directory with the following naming convention:
+```
+{TOKEN}_Trading_Average.csv
+```
+Example: `MAID_Trading_Average.csv`
+
+The processed CSV files contain multiple columns including:
 ```csv
-Date,Volume (USD)
-2024-03-20,1234567.89
-2024-03-19,2345678.90
+Name,Date,Volume,30DayAvg,90DayAvg,180DayAvg,LowVolumeDays30,LowVolumeDays90,LowVolumeDays180,HighestAvg30,HighestAvg90,HighestAvg180,ChangeFromHighAvg30%,ChangeFromHighAvg90%,ChangeFromHighAvg180%
 ```
 
-## Coming Soon
+#### Visualization Files
+Excel charts with trading volume and 30-day rolling averages are generated from the CSV files and stored in the `Token Volume Tracker Data/Final` directory with the following naming convention:
+```
+{TOKEN}_Trading_Average.xlsx
+```
+Example: `MAID_Trading_Average.xlsx`
 
-- Volume trend analysis
-- Statistical summaries
-- Data visualization
-- Pattern detection
-- Export to various formats
+Each Excel file contains:
+1. A "Chart" sheet with a visualization of trading volume and 30-day rolling average
+2. A "Data" sheet with the complete analysis data
 
-## License
+## Running the Analysis
 
-MIT License 
+1. Place historical data CSV files in the `Token Volume Tracker Data/Download` directory
+2. Run the analysis command to process the data:
+```bash
+./token-volume-tracker analyze -input=Token\ Volume\ Tracker\ Data/Download/MAID_3_13_2024-3_13_2025_historical_data_coinmarketcap.csv -output=Token\ Volume\ Tracker\ Data/Final
+```
+3. Generate Excel charts from the CSV files:
+   - First, copy the visualization script to the Final directory:
+   ```bash
+   cp utils/create_excel_charts.py "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software Development/Token Volume Tracker Data/Final/"
+   ```
+   - Then run the script:
+   ```bash
+   cd "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software Development/Token Volume Tracker Data/Final"
+   python3 create_excel_charts.py
+   ```
+
+The script `create_excel_charts.py` will create professional Excel charts for each CSV file in the Final directory, with each Excel file containing:
+1. A Chart sheet showing trading volume and 30-day rolling average
+2. A Data sheet with the complete analysis data
