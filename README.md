@@ -73,16 +73,20 @@ cd "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software 
 
 2. `analyze` - Analyze volume data
    - `-input` - Input CSV file to analyze
-   - `-output` - Output directory for analysis results
 
 ### Output Files
 
 #### Download Files
-Raw data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming convention:
+Raw data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming conventions:
 ```
-{TOKEN}_{START_DATE}-{END_DATE}_historical_data_coinmarketcap.csv
+{TOKEN}_{START_DATE}-{END_DATE}_historical_data_coinmarketcap.csv for files downloaded from CoinMarketCap:
 ```
 Example: `MAID_3_13_2024-3_13_2025_historical_data_coinmarketcap.csv`
+
+```
+{TOKEN}_usd-max.csv for files downloaded from CoinGecko:
+```
+Example: `QLC_usd-max.csv`
 
 #### Analysis Files
 Processed data files are stored in the `Token Volume Tracker Data/Final` directory with the following naming convention:
