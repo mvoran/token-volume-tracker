@@ -62,7 +62,7 @@ cd "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software 
 ./token-volume-tracker fetch -token=CELO -days=365
 
 # Analyze volume data
-./token-volume-tracker analyze -input=Token\ Volume\ Tracker\ Data/Download/CELO_volume_2024-03-20_143022.csv -output=Token\ Volume\ Tracker\ Data/Final
+./token-volume-tracker analyze -input=Token\ Volume\ Tracker\ Data/Download/CELO_volume_2024-03-20_143022.csv
 ```
 
 ### Available Commands
