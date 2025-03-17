@@ -133,7 +133,7 @@ The script `create_excel_charts.py` will create professional Excel charts for ea
 1. A Data sheet to track basic token information like Ticker, Long Name, and Token Type
 2. A Chart sheet showing trading volume and 30-day rolling average
 3. A Data sheet with the complete analysis data
-4. An Data sheet to track CEX and DEX informaion for the token.
+4. An Data sheet to track CEX and DEX information for the token.
 
 The Python script takes an optional flag to process only a single file. If no flag is set, the script will process all .csv files in the current directory.
 
