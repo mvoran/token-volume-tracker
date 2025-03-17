@@ -17,7 +17,33 @@ def create_excel_with_chart(csv_file):
     
     # Create a new workbook and add a worksheet for the chart first
     workbook = xlsxwriter.Workbook(xlsx_file)
+
+    # Add Token Info worksheet
+    tokeninfo_sheet = workbook.add_worksheet("Token Info")
     
+    # Create formats for headers
+    header_format = workbook.add_format({
+        'bold': True,
+        'bottom': 1  # Add bottom border
+    })
+    
+    # Write headers with formatting
+    tokeninfo_sheet.write('A1', 'Ticker', header_format)
+    tokeninfo_sheet.write('B1', 'Long Name', header_format)
+    tokeninfo_sheet.write('C1', 'Type', header_format)
+    tokeninfo_sheet.write('D1', 'CoinMarketCap Link', header_format)
+    tokeninfo_sheet.write('E1', 'CoinGecko Link', header_format)
+    tokeninfo_sheet.write('F1', 'UCID', header_format)
+
+    # Set column widths
+    tokeninfo_sheet.set_column('A:A', 10)
+    tokeninfo_sheet.set_column('B:B', 16)
+    tokeninfo_sheet.set_column('C:C', 16)
+    tokeninfo_sheet.set_column('D:D', 30)
+    tokeninfo_sheet.set_column('E:E', 30)
+    tokeninfo_sheet.set_column('F:F', 10)
+
+
     # Add a chart sheet that will appear first
     chartsheet = workbook.add_chartsheet('Chart')
     

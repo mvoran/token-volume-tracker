@@ -130,9 +130,10 @@ Each Excel file contains:
    ```
 
 The script `create_excel_charts.py` will create professional Excel charts for each CSV file in the Final directory, with each Excel file containing:
-1. A Chart sheet showing trading volume and 30-day rolling average
-2. A Data sheet with the complete analysis data
-3. An Exchange Info sheet that can be filled in manually.
+1. A Data sheet to track basic token information like Ticker, Long Name, and Token Type
+2. A Chart sheet showing trading volume and 30-day rolling average
+3. A Data sheet with the complete analysis data
+4. An Data sheet to track CEX and DEX informaion for the token.
 
 The Python script takes an optional flag to process only a single file. If no flag is set, the script will process all .csv files in the current directory.
 
