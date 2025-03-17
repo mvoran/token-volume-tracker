@@ -118,7 +118,7 @@ func handleAnalyze(inputFile string, dataBasePath string) {
 	if inputFile != "" {
 		// Process single file
 		name := strings.Split(filepath.Base(inputFile), "_")[0]
-		outputFile := filepath.Join(finalDir, fmt.Sprintf("%s_Trading_Average.csv", name))
+		outputFile := filepath.Join(finalDir, fmt.Sprintf("%s_Token_Analysis.csv", name))
 
 		fmt.Printf("Calculating rolling averages for %s...\n", inputFile)
 		if err := analysis.CalculateRollingAverages(inputFile, outputFile); err != nil {
