@@ -4,6 +4,8 @@ import glob
 import csv
 import xlsxwriter
 from datetime import datetime
+import pandas as pd
+import argparse
 
 def create_excel_with_chart(csv_file):
     # Use the same basename but with .xlsx extension.
@@ -152,19 +154,61 @@ def create_excel_with_chart(csv_file):
     # Add the chart to the chartsheet
     chartsheet.set_chart(chart)
     
+    # Add Exchange Info worksheet
+    exchange_sheet = workbook.add_worksheet("Exchange Info")
+    
+    # Create formats for headers
+    header_format = workbook.add_format({
+        'bold': True,
+        'bottom': 1  # Add bottom border
+    })
+    
+    # Write headers with formatting
+    exchange_sheet.write('A1', 'Exchange', header_format)
+    exchange_sheet.write('B1', 'Type', header_format)
+    
+    # Set column widths
+    exchange_sheet.set_column('A:A', 16)
+    exchange_sheet.set_column('B:B', 16)
+    
     workbook.close()
     print("Created:", xlsx_file)
 
 def main():
-    # Find all CSV files in the current directory.
-    csv_files = glob.glob("*.csv")
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Create Excel charts from CSV files')
+    parser.add_argument('--file', '-f', help='Process a single CSV file instead of the entire directory')
+    args = parser.parse_args()
     
-    if not csv_files:
-        print("No CSV files found in the current directory.")
-        return
+    # Get the directory of the script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    for csv_file in csv_files:
-        create_excel_with_chart(csv_file)
+    if args.file:
+        # Process single file
+        input_file = os.path.join(script_dir, args.file)
+        if not os.path.exists(input_file):
+            print(f"Error: File {input_file} does not exist")
+            return
+        
+        if not input_file.endswith('.csv'):
+            print(f"Error: File {input_file} is not a CSV file")
+            return
+            
+        # Create output filename by replacing .csv with .xlsx
+        output_file = os.path.splitext(input_file)[0] + '.xlsx'
+        print(f"Processing single file: {input_file}")
+        create_excel_with_chart(input_file)
+        print(f"Created Excel file: {output_file}")
+    else:
+        # Process all CSV files in the directory
+        print("Processing all CSV files in directory...")
+        for filename in os.listdir(script_dir):
+            if filename.endswith('.csv'):
+                input_file = os.path.join(script_dir, filename)
+                output_file = os.path.splitext(input_file)[0] + '.xlsx'
+                print(f"Processing: {filename}")
+                create_excel_with_chart(input_file)
+                print(f"Created Excel file: {output_file}")
 
 if __name__ == '__main__':
     main()
