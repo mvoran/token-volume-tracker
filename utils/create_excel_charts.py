@@ -22,27 +22,22 @@ def create_excel_with_chart(csv_file):
     tokeninfo_sheet = workbook.add_worksheet("Token Info")
     
     # Create formats for headers
-    header_format = workbook.add_format({
-        'bold': True,
-        'bottom': 1  # Add bottom border
+    tokeninfo_format = workbook.add_format({
+        'bold': True
     })
     
     # Write headers with formatting
-    tokeninfo_sheet.write('A1', 'Ticker', header_format)
-    tokeninfo_sheet.write('B1', 'Long Name', header_format)
-    tokeninfo_sheet.write('C1', 'Type', header_format)
-    tokeninfo_sheet.write('D1', 'CoinMarketCap Link', header_format)
-    tokeninfo_sheet.write('E1', 'CoinGecko Link', header_format)
-    tokeninfo_sheet.write('F1', 'UCID', header_format)
-
+    tokeninfo_sheet.write('A1', 'Ticker', tokeninfo_format)
+    tokeninfo_sheet.write('A2', 'Long Name', tokeninfo_format)
+    tokeninfo_sheet.write('A3', 'Type', tokeninfo_format)
+    tokeninfo_sheet.write('A4', 'CoinMarketCap Link', tokeninfo_format)
+    tokeninfo_sheet.write('A5', 'CoinGecko Link', tokeninfo_format)
+    tokeninfo_sheet.write('A6', 'UCID', tokeninfo_format)
+    tokeninfo_sheet.write('A7', 'Block Explorer', tokeninfo_format)
+    tokeninfo_sheet.write('A8', 'Base Address', tokeninfo_format)
     # Set column widths
-    tokeninfo_sheet.set_column('A:A', 10)
-    tokeninfo_sheet.set_column('B:B', 16)
-    tokeninfo_sheet.set_column('C:C', 16)
-    tokeninfo_sheet.set_column('D:D', 30)
-    tokeninfo_sheet.set_column('E:E', 30)
-    tokeninfo_sheet.set_column('F:F', 10)
-
+    tokeninfo_sheet.set_column('A:A', 18)
+    tokeninfo_sheet.set_column('B:B', 60)
 
     # Add a chart sheet that will appear first
     chartsheet = workbook.add_chartsheet('Chart')
