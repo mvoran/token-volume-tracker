@@ -77,7 +77,7 @@ cd "/Users/mikev/Library/Mobile Documents/com~apple~CloudDocs/Personal/Software 
 ### Output Files
 
 #### Download Files
-Raw data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming conventions:
+Raw data files are stored in the `Token Volume Tracker Data/Download` directory with the following naming convention:
 ```
 {TOKEN}_{START_DATE}-{END_DATE}_historical_data_coinmarketcap.csv for files downloaded from CoinMarketCap:
 ```
@@ -110,13 +110,14 @@ Example: `MAID_Trading_Average.xlsx`
 Each Excel file contains:
 1. A "Chart" sheet with a visualization of trading volume and 30-day rolling average
 2. A "Data" sheet with the complete analysis data
+3. An "Exchange Info" sheet with exchange-related information
 
 ## Running the Analysis
 
 1. Place historical data CSV files in the `Token Volume Tracker Data/Download` directory
 2. Run the analysis command to process the data:
 ```bash
-./token-volume-tracker analyze -input=Token\ Volume\ Tracker\ Data/Download/MAID_3_13_2024-3_13_2025_historical_data_coinmarketcap.csv -output=Token\ Volume\ Tracker\ Data/Final
+./token-volume-tracker analyze -input=Token\ Volume\ Tracker\ Data/Download/MAID_3_13_2024-3_13_2025_historical_data_coinmarketcap.csv
 ```
 3. Generate Excel charts from the CSV files:
    - First, copy the visualization script to the Final directory:
@@ -130,14 +131,10 @@ Each Excel file contains:
    ```
 
 The script `create_excel_charts.py` will create professional Excel charts for each CSV file in the Final directory, with each Excel file containing:
-1. A Data sheet to track basic token information like Ticker, Long Name, and Token Type
-2. A Chart sheet showing trading volume and 30-day rolling average
-3. A Data sheet with the complete analysis data
-4. An Data sheet to track CEX and DEX information for the token.
+1. A Chart sheet showing trading volume and 30-day rolling average
+2. A Data sheet with the complete analysis data
+3. An Exchange Info sheet with exchange-related information
 
-The Python script takes an optional flag to process only a single file. If no flag is set, the script will process all .csv files in the current directory.
+## License
 
-```bash
-# Create Excel chart from .csv file
-python3 create_excel_charts.py -f NXS_Trading_Average.csv
-```
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
